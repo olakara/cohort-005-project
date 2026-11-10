@@ -11,6 +11,7 @@ import {
 import { getCurrentUserId } from "~/lib/session";
 import { resolveCountry } from "~/lib/country.server";
 import { checkPppAccess } from "~/lib/ppp";
+import { getCourseAccessHold, type CourseAccessHold } from "~/lib/refunds.server";
 
 function getUserById(id: number) {
   return db.select().from(users).where(eq(users.id, id)).get();
@@ -64,8 +65,14 @@ export type Access = {
   pppBlockedCountry: string | null;
   pppPurchaseCountry: string | null;
   /**
+   * "paused" while a Refund Request is open or its Refund isn't Issued yet,
+   * "ended" once the Refund is Issued. Staff are never held.
+   */
+  refundHold: CourseAccessHold;
+  /**
    * May they read the course's content (lesson bodies, comments)?
-   * Staff always can. Students need an enrollment that isn't PPP-blocked.
+   * Staff always can. Students need an enrollment that isn't PPP-blocked
+   * or held by a Refund Request.
    */
   canViewContent: boolean;
 };
@@ -80,6 +87,7 @@ const SIGNED_OUT: Access = {
   pppBlocked: false,
   pppBlockedCountry: null,
   pppPurchaseCountry: null,
+  refundHold: null,
   canViewContent: false,
 };
 
@@ -117,6 +125,9 @@ export async function getAccess(
     );
   }
 
+  const refundHold =
+    enrolled && !isStaff ? getCourseAccessHold(userId, courseId) : null;
+
   return {
     userId,
     user,
@@ -127,7 +138,8 @@ export async function getAccess(
     pppBlocked: ppp.blocked,
     pppBlockedCountry: ppp.blockedCountry,
     pppPurchaseCountry: ppp.purchaseCountry,
-    canViewContent: isStaff || (enrolled && !ppp.blocked),
+    refundHold,
+    canViewContent: isStaff || (enrolled && !ppp.blocked && !refundHold),
   };
 }
 
@@ -154,6 +166,12 @@ export async function requireContentAccess(
 
   if (!access.userId) {
     throw data("Select a user from the DevUI panel.", { status: 401 });
+  }
+
+  if (access.refundHold === "paused") {
+    throw data("Your access is paused while your refund request is open.", {
+      status: 403,
+    });
   }
 
   if (!access.canViewContent) {

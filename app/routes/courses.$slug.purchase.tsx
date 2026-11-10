@@ -35,6 +35,7 @@ import { CourseImage } from "~/components/course-image";
 import { UserAvatar } from "~/components/user-avatar";
 import { data } from "react-router";
 import { formatDuration, formatPrice } from "~/lib/utils";
+import { getCourseAccessHold } from "~/lib/refunds.server";
 import { resolveCountry } from "~/lib/country.server";
 import { calculatePppPrice, getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { parseFormData, parseParams } from "~/lib/validation";
@@ -126,6 +127,15 @@ function findEnrollment(userId: number, courseId: number) {
       and(eq(enrollments.userId, userId), eq(enrollments.courseId, courseId))
     )
     .get();
+}
+
+// A learner whose Refund was Issued keeps their enrollment row (it carries
+// Course Progress), but they are free to buy the course again.
+function hasActiveEnrollment(userId: number, courseId: number) {
+  return (
+    isUserEnrolled(userId, courseId) &&
+    getCourseAccessHold(userId, courseId) !== "ended"
+  );
 }
 
 function isUserEnrolled(userId: number, courseId: number) {
@@ -296,7 +306,7 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 
   const mode = url.searchParams.get("mode");
 
-  const enrolled = isUserEnrolled(currentUserId, course.id);
+  const enrolled = hasActiveEnrollment(currentUserId, course.id);
 
   if (enrolled && mode !== "team") {
     throw redirect(`/courses/${slug}?already_enrolled=1`);
@@ -364,11 +374,14 @@ export async function action({ params, request }: Route.ActionArgs) {
     : course.price;
 
   if (parsed.data.intent === "confirm-purchase") {
-    if (isUserEnrolled(currentUserId, course.id)) {
+    if (hasActiveEnrollment(currentUserId, course.id)) {
       throw redirect(`/courses/${slug}`);
     }
+    const buyingAgain = isUserEnrolled(currentUserId, course.id);
     createPurchase(currentUserId, course.id, pppPrice, country);
-    enrollUser(currentUserId, course.id, false, false);
+    if (!buyingAgain) {
+      enrollUser(currentUserId, course.id, false, false);
+    }
     throw redirect(`/courses/${slug}/welcome`);
   }
 

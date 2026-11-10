@@ -724,13 +724,15 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const access = await getAccess(request, course.id);
   const currentUserId = access.userId;
   const enrolled = access.enrolled;
+  const refundHold = access.refundHold;
   let lessonStatus: string | null = null;
   let lastWatchPosition = 0;
   let watchProgress = 0;
   let lessonProgressMap: Record<number, string> = {};
 
   if (currentUserId) {
-    if (enrolled) {
+    // A held learner's Course Progress is kept but not added to.
+    if (enrolled && !refundHold) {
       // Mark lesson as in-progress when viewed
       markLessonInProgress(currentUserId, lessonId);
       const progress = getLessonProgress(currentUserId, lessonId);
@@ -862,6 +864,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    refundHold,
     comments,
     canViewContent,
     canModerate: access.isStaff,
@@ -1026,6 +1029,7 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    refundHold,
     comments,
     canViewContent,
     canModerate,
@@ -1054,6 +1058,27 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
 
   const quizResult = quizFetcher.data?.quizResult ?? null;
   const isSubmittingQuiz = quizFetcher.state !== "idle";
+
+  if (refundHold) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div className="max-w-md text-center">
+          <ShieldAlert className="mx-auto mb-4 size-16 text-amber-500" />
+          <h1 className="mb-3 text-2xl font-bold">
+            {refundHold === "paused" ? "Access Paused" : "Course Refunded"}
+          </h1>
+          <p className="mb-6 text-muted-foreground">
+            {refundHold === "paused"
+              ? "Your access to this course is paused while we review your refund request. Your progress is saved. You can withdraw the request from the course page to carry on."
+              : "Your refund for this course has been issued, so your access has ended. Your progress is saved and will be here if you buy the course again."}
+          </p>
+          <Link to={`/courses/${course.slug}`}>
+            <Button variant="outline">Back to Course</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (pppBlocked) {
     const purchaseCountryName = pppPurchaseCountry

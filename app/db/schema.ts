@@ -35,6 +35,14 @@ export enum RefundStatus {
   Open = "open",
   Approved = "approved",
   Declined = "declined",
+  Withdrawn = "withdrawn",
+}
+
+// What happened to the money once a Refund Request was approved.
+export enum RefundState {
+  Pending = "pending",
+  Issued = "issued",
+  Failed = "failed",
 }
 
 export enum TeamMemberRole {
@@ -244,6 +252,10 @@ export const refunds = sqliteTable(
     reason: text("reason").notNull(),
     // Null until someone approves — a declined request refunds nothing.
     amountRefunded: integer("amount_refunded"),
+    // Null until the request is approved.
+    refundState: text("refund_state").$type<RefundState>(),
+    // The Admin's reason, sent to the learner, when a request is declined.
+    declineReason: text("decline_reason"),
     requestedAt: text("requested_at")
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
